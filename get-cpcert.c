@@ -16,7 +16,6 @@
 extern int errno;
 extern char *optarg;
 extern int opterr, optind;
-//extern char *__progname;
 
 typedef struct {
 	FILE* output;
@@ -73,7 +72,7 @@ int main(int argc, char *argv[]){
 				break;
 			case('h'):
 			default:
-				fprintf(stderr, "Usage: [-i input zip/dir container] [-p zip password] [-k container key] [-o output file]\n");
+				fprintf(stderr, "Usage: [-i input zip/dir container] [-p zip password] [-k container key] [-o output file]\n" );
 				exit(EXIT_FAILURE);
 				
 		}
@@ -82,7 +81,14 @@ int main(int argc, char *argv[]){
 		container_dir_files(options.input, &container);
 	}
 	else if(is_file(options.input)){
-		container_zip_file(options.input, options.zip_password, &container);
+		if(container_zip_file(options.input, options.zip_password, &container)){
+			exit(EXIT_FAILURE);
+		}
+// 		char* buf;
+// 		int s = read_file(options.input,&buf);
+// 		if(container_zip_memory(buf,s,options.zip_password, &container)){
+// 			exit(EXIT_FAILURE);
+// 		}
 	} 
 	else{
 		printf("Input subject <%s> does not exists\n",options.input);

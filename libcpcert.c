@@ -658,11 +658,11 @@ int process_decode_container(container_t* container, const char* passw, BIO* bio
 
 
 // ----- read zip
-int read_zip_container(zip_t** zip,container_t* container){
+int read_zip_container(zip_t* zip,container_t* container){
 	zip_stat_t zip_file_info;
 	
-	for(int i = 0;i<zip_get_num_files(*zip); i ++){
-		zip_stat_index(*zip,i,0, &zip_file_info);
+	for(int i = 0;i<zip_get_num_files(zip); i ++){
+		zip_stat_index(zip,i,0, &zip_file_info);
 		packet_t* packet = 0;
 		if(strstr(zip_file_info.name,"header.key")){
 			packet = &container->header;
@@ -675,15 +675,24 @@ int read_zip_container(zip_t** zip,container_t* container){
 		}
 		
 		if( packet != 0 ){
-			zip_file_t* compressed_file = zip_fopen_index(*zip,i,0);
+			zip_file_t* compressed_file = zip_fopen_index(zip,i,0);
 			if(compressed_file){
-				packet->data =malloc(zip_file_info.size);
+				packet->data = (char*)malloc(zip_file_info.size);
 				packet->size = packet->limit = zip_file_info.size;
 				zip_fread(compressed_file, packet->data, packet->size );
 				zip_fclose(compressed_file);
+			}else{
+				fprintf(stderr,"Unable unzip file %s : %s \n", zip_file_info.name,
+														      zip_strerror(zip));
+				zip_error_clear(zip);
+				return 1;
 			}
 		}
 	}
+	if(!container->header.size || !container->masks.size || !container->primary.size){
+		RETI("Inconsistent container",69);
+	}
+	return 0;
 }
 
 void free_container(container_t* container){
@@ -695,31 +704,50 @@ void free_container(container_t* container){
 int container_zip_file(const char* file_name, const char* zip_passw, container_t* container){
 	int err_flag;
 	zip_t* zip = zip_open(file_name, ZIP_RDONLY, &err_flag);
-	zip_set_default_password(zip, zip_passw);
-	read_zip_container(&zip,container);
+	if(zip == NULL){
+		zip_error_t error;
+		zip_error_init_with_code(&error, err_flag);
+		fprintf(stderr,"Unable open zip file: %s\n", zip_error_strerror(&error));
+		zip_error_fini(&error);
+	}else{
+		zip_set_default_password(zip, zip_passw);
+		err_flag = read_zip_container(zip,container);
+	}
 	zip_close(zip);
+	return err_flag;
 }
 
 int container_zip_memory(const char* file, uint64_t size, const char* zip_passw, container_t* container){
+	int rc = 0;
 	zip_error_t error;
 	zip_source_t* zmem = zip_source_buffer_create(file, size, 0, &error );
 	zip_source_keep(zmem);
 	zip_t* zip = zip_open_from_source(zmem, ZIP_RDONLY, &error );
-	zip_set_default_password(zip, zip_passw);
-	read_zip_container(&zip, container);
+	if(zip == NULL){
+		fprintf(stderr,"Unable open zip file: %s\n", zip_error_strerror(&error));
+		zip_error_fini(&error);
+		rc = zip_error_code_zip(&error);
+	}else{
+		zip_set_default_password(zip, zip_passw);
+		rc = read_zip_container(zip, container);
+	}
 	zip_close(zip);
 	zip_source_free(zmem);
 	zip_source_close(zmem);
+	return rc;
 }
 
 int unpack_zip_stream_container(const char* in_buf, uint64_t in_size, char** out_buf, uint64_t* out_size, const char* zip_passw, const char* secret){
+	int rc = 0;
 	container_t container;
 	memset(&container,0,sizeof(container));
 	
 	BIO *bio = BIO_new(BIO_s_mem());
 	
-	container_zip_memory(in_buf,in_size,zip_passw, &container);
-	process_decode_container(&container, secret, bio);
+	if((rc = container_zip_memory(in_buf,in_size,zip_passw, &container)) == 0){
+		rc = process_decode_container(&container, secret, bio);
+	};
+	
 	
 	BUF_MEM *bptr;
 	BIO_get_mem_ptr(bio, &bptr);
@@ -732,7 +760,7 @@ int unpack_zip_stream_container(const char* in_buf, uint64_t in_size, char** out
 	BIO_free(bio);
 	BUF_MEM_free(bptr);
 	free_container(&container);
-	
+	return rc;
 }
 
 //------------------------------------------------------------------------------

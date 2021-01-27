@@ -51,7 +51,7 @@ dllimport int unpack_zip_stream_container(const char* in_buf, uint64_t in_size, 
 dllimport int container_zip_memory(const char* file, uint64_t size, const char* zip_passw, container_t* container);
 dllimport int container_zip_file(const char* file_name, const char* zip_passw, container_t* container);
 dllimport void free_container(container_t* container);
-dllimport int read_zip_container(zip_t** zip,container_t* container);
+dllimport int read_zip_container(zip_t* zip,container_t* container);
 dllimport int process_decode_container(container_t* container, const char* passw, BIO* bio);
 dllimport int parse_container_buffer(my_data_t* data, container_t* container);
 dllimport int container_dir_files(const char* dir,container_t* container);
