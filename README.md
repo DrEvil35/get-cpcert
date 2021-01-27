@@ -3,7 +3,8 @@ Console utility to convert cryptopro4 certificate (gost-2001, gost-2012) into pe
 
 ## usage
 <pre>
-get-cpcert folder.000 password > certificate.pem
+get-cpcert -i folder.000 -k password > certificate.pem
+get-cpcert -i archive.000.zip -p zip_passowrd -k password -o certificate.pem
 </pre>
 ## build
 <pre>
