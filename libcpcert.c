@@ -763,6 +763,10 @@ int unpack_zip_stream_container(const char* in_buf, uint64_t in_size, char** out
 	return rc;
 }
 
+void free_heap(void* ptr){
+	free(ptr);
+}
+
 //------------------------------------------------------------------------------
 int container_dir(const char* dir, const char* passw, BIO* bio){
 	container_t container;

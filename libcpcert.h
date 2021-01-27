@@ -56,7 +56,7 @@ dllimport int process_decode_container(container_t* container, const char* passw
 dllimport int parse_container_buffer(my_data_t* data, container_t* container);
 dllimport int container_dir_files(const char* dir,container_t* container);
 dllimport long read_file(const char* fn,char** buffer);
-dllimport void free(void* ptr);
+dllimport void free_heap(void* ptr);
 
 
 #endif
