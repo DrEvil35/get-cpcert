@@ -16,7 +16,7 @@
 extern int errno;
 extern char *optarg;
 extern int opterr, optind;
-extern char *__progname;
+//extern char *__progname;
 
 typedef struct {
 	FILE* output;
@@ -73,7 +73,7 @@ int main(int argc, char *argv[]){
 				break;
 			case('h'):
 			default:
-				fprintf(stderr, "%s [-i input zip/dir container] [-p zip password] [-k container key] [-o output file]\n" , __progname);
+				fprintf(stderr, "Usage: [-i input zip/dir container] [-p zip password] [-k container key] [-o output file]\n");
 				exit(EXIT_FAILURE);
 				
 		}
