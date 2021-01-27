@@ -1,0 +1,24 @@
+TOOLCHAIN_PREFIX=x86_64-w64-mingw32-
+CC :=$(TOOLCHAIN_PREFIX)gcc
+CPP :=$(TOOLCHAIN_PREFIX)g++
+AR :=$(TOOLCHAIN_PREFIX)ar
+LD :=$(TOOLCHAIN_PREFIX)ld
+RANNLIB := $(TOOLCHAIN_PREFIX)ranlib
+LDFLAGS :=  -Wl,-O2,-s -Wl,--as-needed -Wl,--out-implib,cpcert.dll.a
+CFLAGS=-O3 -march=x86-64 -m64 -fPIC  -Wno-missing-braces -static-libgcc 
+LIB=cpcert.dll
+
+SRC = libcpcert.c 
+        
+
+all: get-cpcert.exe
+
+$(LIB):$(SRC)
+	$(CC) -o $(LIB) $(SRC) -shared $(CFLAGS) $(LDFLAGS) -L. -l:libcrypto.dll.a -l:gost.dll.a -l:libzip.a -l:libbz2.a -l:liblzma.a -l:libz.a -lcrypt32 -lws2_32 -lbcrypt  -I"../../openssl/include" -I"../../engine/" -I.
+	
+get-cpcert.exe:$(LIB)
+	$(CC) -o $@ get-cpcert.c $(CFLAGS) -L. -l:cpcert.dll.a -l:libcrypto.dll.a -I"../../openssl/include" -I"../../engine/" -I.
+
+
+
+
