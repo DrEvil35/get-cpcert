@@ -7,6 +7,22 @@
 #define ERROR(msg) fprintf(stderr,"ERROR: %s\n",msg)
 #define RETI(msg,code) fprintf(stderr,"ERROR: %s\n",msg);return code;
 #define DIR_SEP '/'
+#define PRIMARY_H 1938610928
+#define MASKS_H  2670781591
+#define HEADER_H 461606685
+
+
+uint32_t inline hash32 ( const char* key )
+{
+  uint32_t h = 3323198485ul;
+  for (;*key;++key) {
+    h ^= *key;
+    h *= 0x5bd1e995;
+    h ^= h >> 15;
+  }
+  return h;
+}
+
 
 
 // packet ----------------------------------------------------------------------
@@ -658,47 +674,108 @@ int process_decode_container(container_t* container, const char* passw, BIO* bio
 
 
 // ----- read zip
-int read_zip_container(zip_t* zip,container_t* container){
-	zip_stat_t zip_file_info;
+int read_zip_containers_array(zip_t* zip, container_t** container_array, size_t* size_container){
 	
-	for(int i = 0;i<zip_get_num_files(zip); i ++){
+	typedef struct {
+		uint32_t hash;
+		container_t* container;
+	} group_cointainer_t;
+	
+	group_cointainer_t* groups = NULL;
+	*container_array = NULL;
+	
+	size_t size_groups = 0;
+	*size_container = 0;
+	zip_stat_t zip_file_info;
+	for(int i = 0;i<zip_get_num_files(zip); i++){
 		zip_stat_index(zip,i,0, &zip_file_info);
-		packet_t* packet = 0;
-		if(strstr(zip_file_info.name,"header.key")){
-			packet = &container->header;
-		}	
-		else if(strstr(zip_file_info.name,"primary.key")){
-			packet = &container->primary;
-		}
-		else if(strstr(zip_file_info.name,"masks.key")){
-			packet = &container->masks;
+		char* full_path = strdup(zip_file_info.name);
+		char* file_name = basename( full_path );
+		char* file_path = dirname( full_path );
+		
+		uint32_t group_h = hash32( file_path );
+		uint32_t filename_h = hash32(file_name);
+
+		free(full_path);
+		
+
+		size_t offset;
+		switch(filename_h){
+			case PRIMARY_H:
+				offset = offsetof(container_t, primary);
+				break;
+			case MASKS_H:
+				offset = offsetof(container_t, masks);
+				break;
+			case HEADER_H:
+				offset = offsetof(container_t, header);
+				break;
+			default:
+				continue;
 		}
 		
-		if( packet != 0 ){
-			zip_file_t* compressed_file = zip_fopen_index(zip,i,0);
-			if(compressed_file){
-				packet->data = (char*)malloc(zip_file_info.size);
-				packet->size = packet->limit = zip_file_info.size;
-				zip_fread(compressed_file, packet->data, packet->size );
-				zip_fclose(compressed_file);
-			}else{
-				fprintf(stderr,"Unable unzip file %s : %s \n", zip_file_info.name,
-														      zip_strerror(zip));
-				zip_error_clear(zip);
-				return 1;
+		group_cointainer_t* container_group = NULL;
+		
+		for(int y = 0; y < size_groups; y++){
+			if( groups[y].hash == group_h ){
+				container_group = &groups[y];
+				break;
 			}
 		}
-	}
-	if(!container->header.size || !container->masks.size || !container->primary.size){
-		RETI("Inconsistent container",69);
-	}
-	return 0;
+
+		if( container_group == NULL ){
+			size_groups++;
+			(*size_container)++;
+			groups = (group_cointainer_t*)realloc(groups, sizeof(group_cointainer_t)*size_groups);
+			*container_array = (container_t*)realloc(*container_array, sizeof(container_t)*(*size_container));
+			container_group = &groups[size_groups-1];
+			container_group->container = &((*container_array)[*size_container-1]);
+			container_group->hash = group_h;
+		}
+
+		packet_t* packet = (packet_t*)(((char*)container_group->container) + offset);
+		
+		zip_file_t* compressed_file = zip_fopen_index(zip,i,0);
+		if(compressed_file){
+			packet->data = (char*)malloc(zip_file_info.size);
+			packet->size = packet->limit = zip_file_info.size;
+			zip_fread(compressed_file, packet->data, packet->size );
+			zip_fclose(compressed_file);
+		}else{
+			fprintf(stderr,"Unable unzip file %s : %s \n", zip_file_info.name,
+															zip_strerror(zip));
+			zip_error_clear(zip);
+			continue;
+		}
+	}	
 }
 
 void free_container(container_t* container){
 	free(container->header.data);
  	free(container->masks.data);
  	free(container->primary.data);
+}
+
+void free_container_array(container_t* arr, size_t size){
+	for(int i = 0; i < size; i++){
+		free_container(&arr[i]);
+	}
+}
+
+int container_array_zip_file(const char* file_name, const char* zip_passw, container_t** container_array, size_t* size_container){
+	int err_flag;
+	zip_t* zip = zip_open(file_name, ZIP_RDONLY, &err_flag);
+	if(zip == NULL){
+		zip_error_t error;
+		zip_error_init_with_code(&error, err_flag);
+		fprintf(stderr,"Unable open zip file: %s\n", zip_error_strerror(&error));
+		zip_error_fini(&error);
+	}else{
+		zip_set_default_password(zip, zip_passw);
+		read_zip_containers_array(zip, container_array, size_container);
+	}
+	zip_close(zip);
+	return err_flag;
 }
 
 int container_zip_file(const char* file_name, const char* zip_passw, container_t* container){
@@ -711,16 +788,25 @@ int container_zip_file(const char* file_name, const char* zip_passw, container_t
 		zip_error_fini(&error);
 	}else{
 		zip_set_default_password(zip, zip_passw);
-		err_flag = read_zip_container(zip,container);
+		size_t size_container;
+		container_t* container_array;
+		read_zip_containers_array(zip, &container_array, &size_container);
+		if(size_container > 0){
+ 			memcpy(container, &container_array[0], sizeof(container_t));
+ 			free(container_array);
+		}else{
+			fprintf(stderr,"Not found containers in ZIP file\n");
+			err_flag = 101;
+		}
 	}
 	zip_close(zip);
 	return err_flag;
 }
 
-int container_zip_memory(const char* file, uint64_t size, const char* zip_passw, container_t* container){
+int container_zip_memory(const char* buf, uint64_t size, const char* zip_passw, container_t** container_array, size_t* size_container){
 	int rc = 0;
 	zip_error_t error;
-	zip_source_t* zmem = zip_source_buffer_create(file, size, 0, &error );
+	zip_source_t* zmem = zip_source_buffer_create(buf, size, 0, &error );
 	zip_source_keep(zmem);
 	zip_t* zip = zip_open_from_source(zmem, ZIP_RDONLY, &error );
 	if(zip == NULL){
@@ -728,8 +814,12 @@ int container_zip_memory(const char* file, uint64_t size, const char* zip_passw,
 		zip_error_fini(&error);
 		rc = zip_error_code_zip(&error);
 	}else{
-		zip_set_default_password(zip, zip_passw);
-		rc = read_zip_container(zip, container);
+
+		read_zip_containers_array(zip, container_array, size_container);
+		if(*size_container == 0){
+			fprintf(stderr,"Not found containers in ZIP file\n");
+			rc = 101;
+		}
 	}
 	zip_close(zip);
 	zip_source_free(zmem);
@@ -737,29 +827,32 @@ int container_zip_memory(const char* file, uint64_t size, const char* zip_passw,
 	return rc;
 }
 
-int unpack_zip_stream_container(const char* in_buf, uint64_t in_size, char** out_buf, uint64_t* out_size, const char* zip_passw, const char* secret){
+int unpack_zip_stream_container(const char* in_buf, uint64_t in_size, char** out_buf, size_t* out_size, const char* zip_passw, const char* secret){
 	int rc = 0;
-	container_t container;
-	memset(&container,0,sizeof(container));
-	
-	BIO *bio = BIO_new(BIO_s_mem());
-	
-	if((rc = container_zip_memory(in_buf,in_size,zip_passw, &container)) == 0){
-		rc = process_decode_container(&container, secret, bio);
+	container_t* container_array;
+	size_t size;
+	if((rc = container_zip_memory(in_buf,in_size,zip_passw, &container_array,&size)) == 0){
+		rc = decode_container_str(container_array[0], secret, out_buf, out_size );
 	};
-	
-	
+	free_container_array(container_array, size);
+	free(container_array);
+	return rc;
+}
+
+int decode_container_str(container_t* container, const char* secret, char** buffer, size_t* bufsize){
+	BIO *bio = BIO_new(BIO_s_mem());
+	int rc = process_decode_container(&container, secret, bio);
 	BUF_MEM *bptr;
 	BIO_get_mem_ptr(bio, &bptr);
 	
-	*out_buf = (char*)malloc(bptr->length);
-	*out_size = bptr->length;
-	memcpy(*out_buf, bptr->data, bptr->length);
+	*buffer = (char*)malloc(bptr->length);
+	*bufsize = bptr->length;
+	memcpy(*buffer, bptr->data, bptr->length);
 	
 	BIO_set_close(bio, BIO_NOCLOSE);
 	BIO_free(bio);
 	BUF_MEM_free(bptr);
-	free_container(&container);
+	free_container(container);
 	return rc;
 }
 
