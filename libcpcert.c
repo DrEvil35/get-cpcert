@@ -748,6 +748,7 @@ int read_zip_containers_array(zip_t* zip, container_t** container_array, size_t*
 			continue;
 		}
 	}	
+	if(groups!=NULL) free(groups);
 }
 
 void free_container(container_t* container){
